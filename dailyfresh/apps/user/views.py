@@ -1,9 +1,11 @@
 from django.shortcuts import render, redirect
 from django.core.urlresolvers import reverse # 反向解析
 from django.views.generic import View
+from django.core.mail import send_mail
+from django.http import HttpResponse
 from django.conf import settings
 from user.models import User
-from django.http import HttpResponse
+
 
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
@@ -107,7 +109,7 @@ class RegisterView(View):
 			# 数据不完整
 			return render(request, 'register.html', {'errmsg': '数据不完整'})
 		# 效验邮箱
-		if not re.match(r'^[a-z0-9][\w\.\-]*@[a-z0-9\-]+(\.[a-z]{2,5}){1,2}$', email):
+		if not re.match(r'^[a-z0-9][\w.\-]*@[a-z0-9\-]+(\.[a-z]{2,5}){1,2}$', email):
 			return render(request, 'register.html', {'errmsg': '邮件格式不正确'})
 		# 效验协议是否勾选
 		if allow != 'on':
@@ -133,10 +135,18 @@ class RegisterView(View):
 		# 加密用户的身份信息，生成token
 		serializer = Serializer(settings.SECRET_KEY, 3600)
 		info = {'confirm':user.id}
-		token = serializer.dumps(info)
+		token = serializer.dumps(info)  # 返回的是bytes信息
+		token = token.decode()
+
 
 		# 发送邮件
+		subject = '天天生鲜欢迎信息'
+		message = ''
+		sender = settings.EMAIL_FROM
+		receiver = [email]
+		html_message = '<h1>%s,欢迎您成为天天生鲜注册会员</h1>请点击链接激活您的账号<br /><a href="http://127.0.0.1:8000/user/active/%s">http://127.0.0.1:8000/user/active/%s</a>' %(username, token, token)
 
+		send_mail(subject, message, sender, receiver, html_message=html_message)
 		# 返回应答,跳转到首页 -->反向解析
 		return redirect(reverse('goods:index'))
 
