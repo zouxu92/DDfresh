@@ -1,12 +1,11 @@
 from django.shortcuts import render, redirect
 from django.core.urlresolvers import reverse # 反向解析
 from django.views.generic import View
-from django.core.mail import send_mail
 from django.http import HttpResponse
 from django.conf import settings
+
 from user.models import User
-
-
+from celery_tasks.tasks import send_register_active_email
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
 import re
@@ -138,15 +137,9 @@ class RegisterView(View):
 		token = serializer.dumps(info)  # 返回的是bytes信息
 		token = token.decode()
 
-
 		# 发送邮件
-		subject = '天天生鲜欢迎信息'
-		message = ''
-		sender = settings.EMAIL_FROM
-		receiver = [email]
-		html_message = '<h1>%s,欢迎您成为天天生鲜注册会员</h1>请点击链接激活您的账号<br /><a href="http://127.0.0.1:8000/user/active/%s">http://127.0.0.1:8000/user/active/%s</a>' %(username, token, token)
+		send_register_active_email.delay(email, username, token)
 
-		send_mail(subject, message, sender, receiver, html_message=html_message)
 		# 返回应答,跳转到首页 -->反向解析
 		return redirect(reverse('goods:index'))
 
