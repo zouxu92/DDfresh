@@ -1,6 +1,6 @@
-{# 首页、注册、登录 #}
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+{# 首页、注册、登录 #}
 {% load staticfiles %}
 <head>
 	<meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
@@ -18,21 +18,26 @@
 		<div class="header">
 			<div class="welcome fl">欢迎来到天天生鲜!</div>
 			<div class="fr">
-				<div class="login_info fl">
-					欢迎您：<em>张 山</em>
-				</div>
+				{% if user.is_authenticated %}
 				<div class="login_btn fl">
-					<a href="login.html">登录</a>
+					欢迎您：<em>{{ user.username }}</em>
 					<span>|</span>
-					<a href="register.html">注册</a>
+					<a href="{% url 'user:logout' %}">退出</a>
 				</div>
+				{% else %}
+				<div class="login_btn fl">
+					<a href="{% url 'user:login' %}">登录</a>
+					<span>|</span>
+					<a href="{% url 'user:register' %}">注册</a>
+				</div>
+				{% endif %}
 				<div class="user_link fl">
 					<span>|</span>
-					<a href="user_center_info.html">用户中心</a>
+					<a href="{% url 'user:user' %}">用户中心</a>
 					<span>|</span>
 					<a href="cart.html">我的购物车</a>
 					<span>|</span>
-					<a href="user_center_order.html">我的订单</a>
+					<a href="{% url 'user:order' %}">我的订单</a>
 				</div>
 			</div>
 		</div>
@@ -42,7 +47,7 @@
 {# 网页顶部搜索框 #}
 {% block search_bar %}
 	<div class="search_bar clearfix">
-		<a href="index.html" class="logo fl"><img src="images/logo.png"></a>
+		<a href="index.html" class="logo fl"><img src="{% static 'images/logo.png' %}"></a>
 		<div class="search_con fl">
 			<input type="text" class="input_text fl" name="" placeholder="搜索商品">
 			<input type="button" class="input_btn fr" name="" value="搜索">
@@ -75,6 +80,5 @@
     {% block bottom %}{% endblock bottom %}
     {# 网页底部引入文件块 #}
     {% block bottomfiles %}{% endblock bottomfiles %}
-
 </body>
 </html>
