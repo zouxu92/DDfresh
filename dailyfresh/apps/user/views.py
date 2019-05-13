@@ -6,10 +6,12 @@ from django.http import HttpResponse
 from django.conf import settings
 
 from user.models import User, Address
+from goods.models import GoodsSKU
 from celery_tasks.tasks import send_register_active_email
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
 from utils.mixin import LoginRequiredMixin
+from django_redis import get_redis_connection
 import re
 # Create your views here.
 
@@ -236,12 +238,28 @@ class LogoutView(View):
 		# 跳转到首页
 		return redirect(reverse('goods:index'))
 
-# user/
+# /user
 class UserInfoView(LoginRequiredMixin, View):
 	'''用户中心-信息页'''
 	def get(self, request):
 		'''显示'''
-		return render(request, 'user_center_info.html', {'page': 'user'})
+		# Django 会话给request对象添加一个属性request>user
+		# 如果用户未登陆->user是AnonymousUser类的一个实例
+		# 如果用户登录->user是User类的一个实例
+		# request.user.is_authenticated()
+
+		# 获取用户的个人信息
+		user = request.user
+		address = Address.objects.get_default_address(user)
+		# 获取用户的历史浏览记录
+		con = get_redis_connection('default')
+
+		history_key = 'history_d' %user.id
+
+		#
+
+		# 出来你给模板文件传递的模板变量之外，Django框架会吧request.user也传给模板文件
+		return render(request, 'user_center_info.html', {'page': 'user', 'address': address})
 
 # user/order
 class UserOrderView(LoginRequiredMixin, View):
