@@ -254,12 +254,33 @@ class UserInfoView(LoginRequiredMixin, View):
 		# 获取用户的历史浏览记录
 		con = get_redis_connection('default')
 
-		history_key = 'history_d' %user.id
+		history_key = 'history_%d' %user.id
 
+		# 获取用户罪行浏览的5个商品的id
+		sku_ids  = con.lrange(history_key, 0, 4)
+
+		# 从数据库中查询用户浏览的商品的具体信息
+		# goods_li = GoodsSKU.objects.filter(id__in=sku_ids)
 		#
+		# goods_res = []
+		# for a_id in sku_ids:
+		# 	for goods in goods_li:
+		# 		if a_id == goods.id:
+		#			goods_res.append(goods)
 
-		# 出来你给模板文件传递的模板变量之外，Django框架会吧request.user也传给模板文件
-		return render(request, 'user_center_info.html', {'page': 'user', 'address': address})
+		# 遍历获取用户浏览的商品信息
+		goods_li = []
+		for id in sku_ids:
+			goods = GoodsSKU.objects.get(id=id)
+			goods_li.append(goods)
+
+		# 组织上下文
+		context = {'page': 'user',
+				   'address': address ,
+				   'goods_li': goods_li}
+
+		# 除了你给模板文件传递的模板变量之外，Django框架会吧request.user也传给模板文件
+		return render(request, 'user_center_info.html', context)
 
 # user/order
 class UserOrderView(LoginRequiredMixin, View):
