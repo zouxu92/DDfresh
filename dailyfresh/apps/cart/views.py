@@ -157,7 +157,7 @@ class CartUpdateView(View):
         # 更新
         conn.hset(cart_key, sku_id, count)
 
-        # 计算用户购物车中商品的总件数
+        # 计算用户购物车中商品的总件数 {'1':5, '2':3}
         total_count = 0
         vals = conn.hvals(cart_key)
         for val in vals:
@@ -201,5 +201,11 @@ class CartDeleteView(View):
         # 删除 hdel
         conn.hdel(cart_key, sku_id)
 
+        # 计算用户购物车中商品的总件数 {'1':5, '2':3}
+        total_count = 0
+        vals = conn.hvals(cart_key)
+        for val in vals:
+            total_count += int(val)
+
         # 4. 返回应答
-        return JsonResponse({'res':3, 'message':'删除成功'})
+        return JsonResponse({'res':3, 'total_count':total_count, 'message':'删除成功'})
