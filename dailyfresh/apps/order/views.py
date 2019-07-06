@@ -138,43 +138,65 @@ class OrderCommitView(View):
 
             sku_ids = sku_ids.split(',')
             for sku_id in sku_ids:
-                # 获取商品的信息
-                try:
-                    sku = GoodsSKU.objects.get(id=sku_id)
-                except:
-                    # 商品不存在
-                    transaction.savepoint_rollback(save_id)
-                    return JsonResponse({'res':4, 'errmsg':'商品不存在'})
+                for i in range(3):
+                    # 获取商品的信息
+                    try:
+                        # 将查询商品信息时，对该操作进行加锁
+                        # sku = GoodsSKU.objects.select_for_update().get(id=sku_id)
+                        sku = GoodsSKU.objects.get(id=sku_id)
+                    except:
+                        # 商品不存在
+                        transaction.savepoint_rollback(save_id)
+                        return JsonResponse({'res':4, 'errmsg':'商品不存在'})
 
-                # 从redis中获取用户所需要购买的商品数量
-                count = conn.hget(cart_key, sku_id)
+                    # 从redis中获取用户所需要购买的商品数量
+                    count = conn.hget(cart_key, sku_id)
 
-                # todo: 判断商品的库存
-                if int(count) > sku.stock:
-                    transaction.savepoint_rollback(save_id)
-                    return JsonResponse({'res':6, 'errmsg':'商品库存不足'})
+                    # todo: 判断商品的库存
+                    if int(count) > sku.stock:
+                        transaction.savepoint_rollback(save_id)
+                        return JsonResponse({'res':6, 'errmsg':'商品库存不足'})
+
+                    # todo： 更新商品的库存和销量
+                    ''' 用乐观锁进行更改判断
+                    sku.stock -= int(count)
+                    sku.sales += int(count)
+                    sku.save()
+                    '''
+                    origin_stock = sku.stock
+                    new_stock = origin_stock - int(count)
+                    new_sales = sku.sales + int(count)
+
+                    # update df_goods_sku set stock=new_stock, sales=new_sales where id=sku_id and stock=origin_stock
+                    # 返回首影响的行数
+                    res = GoodsSKU.objects.filter(id=sku_id, stock=origin_stock).update(stock=new_stock, sales=new_sales)
+                    if res == 0:
+                        if i == 2:
+                            # 尝试3次进行更新
+                            transaction.savepoint_rollback(save_id)
+                            return JsonResponse({'res':7, 'errmsg':'下单失败'})
+                        continue
+
+                    # todo: 向df_order_goods表中刚添加一条数据
+                    OrderGoods.objects.create(order=order,
+                                              sku=sku,
+                                              count=count,
+                                              price=sku.price)
 
 
-                # todo: 向df_order_goods表中刚添加一条数据
-                OrderGoods.objects.create(order=order,
-                                          sku=sku,
-                                          count=count,
-                                          price=sku.price)
 
-                # todo： 更新商品的库存和销量
-                sku.stock -= int(count)
-                sku.sales += int(count)
-                sku.save()
+                    # todo: 累加计算订单商品的总数量和总价格
+                    amount = sku.price*int(count)
+                    total_count += int(count)
+                    total_price += amount
 
-                # todo: 累加计算订单商品的总数量和总价格
-                amount = sku.price*int(count)
-                total_count += int(count)
-                total_price += amount
+                    # 跳出循环
+                    break
 
-            # todo: 更新订单信息表中的商品的总数量和总价格
-            order.total_count = total_count
-            order.total_price = total_price
-            order.save()
+                # todo: 更新订单信息表中的商品的总数量和总价格
+                order.total_count = total_count
+                order.total_price = total_price
+                order.save()
         except Exception as e:
             transaction.savepoint_rollback(save_id)
             return JsonResponse({'res':7, 'errmsg':'下单失败'})
