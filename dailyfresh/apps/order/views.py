@@ -2,6 +2,7 @@ from django.shortcuts import render,redirect
 from django.core.urlresolvers import reverse
 from django.http import JsonResponse
 from django.db import transaction
+from django.conf import settings
 from django.views.generic import View
 
 from user.models import  Address
@@ -11,6 +12,8 @@ from order.models import OrderInfo, OrderGoods
 from django_redis import get_redis_connection
 from utils.mixin import LoginRequiredMixin
 from datetime import datetime
+from alipay import AliPay
+import os
 
 # Create your views here.
 # /order/place
@@ -210,8 +213,181 @@ class OrderCommitView(View):
         # 返回应答
         return JsonResponse({'res':5, 'message':'创建成功'})
 
+# ajax post
+# 前端传递的参数：订单id（order_id）
+# /order/pay
+class OrderPayView(View):
+    '''订单支付'''
+    def post(self, request):
+        # 用户是否登录
+        user = request.user
+        if not user.is_authenticated():
+            return JsonResponse({'res':0, 'errmsg':'用户未登录'})
+
+        #接收参数
+        order_id = request.POST.get('order_id')
+
+        # 效验参数
+        if not order_id:
+            return JsonResponse({'res':1, 'errmsg':'无效的订单id'})
+
+        try:
+            order = OrderInfo.objects.get(order_id=order_id,
+                                          user=user,
+                                          pay_method=3,
+                                          order_status=1)
+        except OrderInfo.DoesNotExist:
+            return JsonResponse({'res':2, 'errmsg':'订单错误'})
+
+        # 业务处理：使用python sdk 调用支付宝的支付接口
+        # 初始化
+        alipay = AliPay(
+            appid="2016100100639604",  # 应用的id
+            app_notify_url=None,  # 默认回调url
+            app_private_key_path=os.path.join(settings.BASE_DIR, 'apps/order/app_private_key.pem'),
+            # 支付宝的公钥，验证支付宝回传消息使用，不是你自己的公钥,
+            alipay_public_key_path=os.path.join(settings.BASE_DIR, 'apps/order/alipay_public_key.pem'),
+            sign_type="RSA2",  # RSA 或者 RSA2
+            debug = True  # 默认False
+        )
+
+        # 调用接口
+        # 电脑网站支付，需要跳转到https://openapi.alipaydev.com/gateway.do? + order_string
+        total_pay = order.total_price+order.transit_price  # Decimal
+        order_string = alipay.api_alipay_trade_page_pay(
+            out_trade_no=order_id, # 订单id
+            total_amount=str(total_pay),  # 支付总金额
+            subject='天天生鲜%s'%order_id,
+            return_url=None,
+            notify_url=None  # 可选, 不填则使用默认notify url
+        )
+
+        # 返回应答
+        pay_url = 'https://openapi.alipaydev.com/gateway.do?' + order_string
+        return JsonResponse({'res':3, 'pay_url':pay_url})
 
 
+# ajax post
+# 前端传递的参数：订单id（order_id)
+# /order/check
+class CheckPayView(View):
+    '''查询订单支付结果'''
+    def post(self, request):
+        '''这里ssl报错，禁用ssl验证来进行解决'''
+        # https://blog.csdn.net/bernieyangmh/article/details/74578759   参考地址
+        import ssl
+        try:
+            _create_unverified_https_context = ssl._create_unverified_context
+        except AttributeError:
+            # Legacy Python that doesn't verify HTTPS certificates by default
+            pass
+        else:
+            # Handle target environment that doesn't support HTTPS verification
+            ssl._create_default_https_context = _create_unverified_https_context
+        '''查询支付结果'''
+        # 用户是否登录
+        user = request.user
+        if not user.is_authenticated():
+            return JsonResponse({'res': 0, 'errmsg': '用户未登录'})
 
+        # 接收参数
+        order_id = request.POST.get('order_id')
 
+        # 效验参数
+        if not order_id:
+            return JsonResponse({'res': 1, 'errmsg': '无效的订单id'})
 
+        try:
+            order = OrderInfo.objects.get(order_id=order_id,
+                                          user=user,
+                                          pay_method=3,
+                                          order_status=1)
+        except OrderInfo.DoesNotExist:
+            return JsonResponse({'res': 2, 'errmsg': '订单错误'})
+
+        # 业务处理：使用python sdk 调用支付宝的支付接口
+        # 初始化
+        alipay = AliPay(
+            appid="2016100100639604",  # 应用的id
+            app_notify_url=None,  # 默认回调url
+            app_private_key_path=os.path.join(settings.BASE_DIR, 'apps/order/app_private_key.pem'),
+            # 支付宝的公钥，验证支付宝回传消息使用，不是你自己的公钥,
+            alipay_public_key_path=os.path.join(settings.BASE_DIR, 'apps/order/alipay_public_key.pem'),
+            sign_type="RSA2",  # RSA 或者 RSA2
+            debug=True  # 默认False
+        )
+
+        # 调用支付宝的查询接口
+        while True:
+            response = alipay.api_alipay_trade_query(order_id)
+
+            ''' response返回数据：
+            "alipay_trade_query_response": {
+            "code": "10000",      # 接口是否调用成功
+            "msg": "Success",
+            "trade_no": "2013112011001004330000121536", # 支付宝交易号
+            "out_trade_no": "6823789339978248",
+            "buyer_logon_id": "159****5620",
+            "trade_status": "TRADE_CLOSED",   # 支付结果
+            "total_amount": 88.88,
+            "trans_currency": "TWD",
+            "settle_currency": "USD",
+            "settle_amount": 2.96,
+            "pay_currency": 1,
+            "pay_amount": "8.88",
+            "settle_trans_rate": "30.025",
+            "trans_pay_rate": "0.264",
+            "buyer_pay_amount": 8.88,
+            "point_amount": 10,
+            "invoice_amount": 12.11,
+            "send_pay_date": "2014-11-27 15:45:57",
+            "receipt_amount": "15.25",
+            "store_id": "NJ_S_001",
+            "terminal_id": "NJ_T_001",
+            "fund_bill_list": [
+                {
+                    "fund_channel": "ALIPAYACCOUNT",
+                    "bank_code": "CEB",
+                    "amount": 10,
+                    "real_amount": 11.21
+                }
+            ],
+            "store_name": "证大五道口店",
+            "buyer_user_id": "2088101117955611",
+            "charge_amount": "8.88",
+            "charge_flags": "bluesea_1",
+            "settlement_id": "2018101610032004620239146945",
+            "auth_trade_pay_mode": "CREDIT_PREAUTH_PAY",
+            "buyer_user_type": "PRIVATE",
+            "mdiscount_amount": "88.88",
+            "discount_amount": "88.88",
+            "buyer_user_name": "菜鸟网络有限公司",
+            "subject": "Iphone6 16G",
+            "body": "Iphone6 16G",
+            "alipay_sub_merchant_id": "2088301372182171",
+            "ext_infos": "{\"action\":\"cancel\"}"
+            },
+            "sign": "ERITJKEIJKJHKKKKKKKHJEREEEEEEEEEEE"
+            '''
+
+            code = response.get('code')
+
+            if code == '10000' and response.get('trade_status') == 'TRADE_SUCCESS':
+                # 支付成功
+                # 获取支付宝交易号
+                trade_no = response.get('trade_no')
+                # 更新订单状态
+                order.trade_no = trade_no
+                order.order_status = 4   # 当前没有发货流程，直接就到了评价状态
+                order.save()
+                # 返回结果
+                return JsonResponse({'res':3, 'message':'支付成功'})
+            elif code == '40004' or (code == '10000' and response.get('trade_status') == 'WAIT_BUYER_PAY'):
+                # 等待买家付款
+                import time
+                time.sleep(5)
+                continue
+            else:
+                # 支付出错
+                print(code)
+                return JsonResponse({'res':4, 'errmsg':'支付失败'})
